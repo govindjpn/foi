@@ -8,8 +8,8 @@ from langchain.vectorstores import FAISS
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
-from langchain.llms import OpenAI
-from langchain.llms import HuggingFaceHub
+from langchain_community.llms import OpenAI
+from langchain_community.llms import HuggingFaceHub
 import pandas as pd 
 import pickle
 import os
@@ -99,22 +99,24 @@ def clear_questions():
     # if 'chat_history' not in st.session_state:
     #      st.session_state.chat_history = None
 
-columns = [ "user","name","page_count", "doc_type", "summary"]
+column_names = [ "user","name","page_count", "doc_type", "summary"]
 if "files_df" not in st.session_state: 
     if os.path.exists("files_df.pkl"): 
-        files_df =pickle.load(open("files_df.pkl","rb"))    
+        docs_df =pickle.load(open("files_df.pkl","rb"))    
     else : 
-        files_df =pd.DataFrame(columns = columns)
+        docs_df = pd.DataFrame(columns = column_names)
 else :
-    files_df = st.session_state["files_df"] 
+    docs_df = st.session_state["files_df"] 
 
 def add_file_to_df (user_name, row):
-    global files_df
-
-    files_df.loc[files_df.shape[0]] = [user_name] + [a for a in list(row)]
-    pickle.dump(files_df, open("files_df.pkl","wb"))
-    st.session_state["files_df"] = files_df
-    log.log_write(f"Files = {files_df}")
+    global docs_df
+    if row[0] not in list(docs_df[docs_df["user"] == user_name]["name"]) : 
+        docs_df.loc[docs_df.shape[0]] = [user_name] + [a for a in list(row)]
+        print (f"docs = {docs_df}")
+        log.log_write(f"Files = {docs_df}")
+        pickle.dump( obj=docs_df, file=open("files_df.pkl","wb"))
+        st.session_state["files_df"] = docs_df
+       
 
 def read_files(pdf_file, model, chat_history_con): 
     ## get PDF text  
@@ -125,19 +127,19 @@ def read_files(pdf_file, model, chat_history_con):
     ## create a vector store with the embeddings 
     vectorstore = get_vectorstore(model, text_chunks)
 
-    ## Create conversation chain 
+    ## Create conversation c    hain 
     st.session_state.conversation = get_conversation_chain(model, vectorstore)
 
+    st.session_state.pdf_file_name = pdf_file.name
+    with open(os.path.join("docs",pdf_file.name),"wb") as f: 
+      f.write(pdf_file.getbuffer())     
+    add_file_to_df (st.session_state.user_name, (pdf_file.name , page_count, "category", "summary"))
+    
     user_question = f"I have uploaded {pdf_file.name} ({page_count} pages)."
     #response = st.session_state.conversation({'question': user_question}) 
     user_question += f"If this is a policy schedule, provide the policy details with the coverage, the insured and risk location"
     handle_userinput(user_question, chat_history_con)
 
-    st.session_state.pdf_file_name = pdf_file.name
-    with open(os.path.join("docs",pdf_file.name),"wb") as f: 
-      f.write(pdf_file.getbuffer())     
-    add_file_to_df (st.session_state.user_name, (pdf_file.name, page_count, "category", "summary"))
-    
 
 def main() : 
     if "loggedIn" not in st.session_state or  not st.session_state["loggedIn"]:
@@ -160,14 +162,7 @@ def main() :
 
         c1, c2 = st.columns(2)
         ##
-        with c1 : 
-            if "pdf_file_name" in st.session_state and st.session_state.pdf_file_name is not None: 
-                pdf_file_name = st.session_state.pdf_file_name
-                with open(os.path.join("docs",pdf_file_name), "rb") as f:
-                    base64_pdf = base64.b64encode(f.read()).decode('utf-8')
-                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="inherit" height="1000" type="application/pdf"></iframe>'
-                #print(f"Displaying PDF {pdf_file_name}")
-                st.markdown(pdf_display, unsafe_allow_html=True)
+       
 
         with c2 : 
             st.header("Chat with your Policy Wordings :books:")
@@ -187,9 +182,14 @@ def main() :
             if st.button ("Read"): 
                 with st.spinner("Reading.."): 
                     read_files(pdf_file, model,chat_history_con)
-                    #pdf_name = "./docs/" + pdf_file.name 
-                    #with c1: 
-                    #   st.write(pdf_display.replace("{{PATH}}", pdf_name), unsafe_allow_html=True)
+                    with c1 : 
+                        if "pdf_file_name" in st.session_state and st.session_state.pdf_file_name is not None: 
+                            pdf_file_name = st.session_state.pdf_file_name
+                            with open(os.path.join("docs",pdf_file_name), "rb") as f:
+                                base64_pdf = base64.b64encode(f.read()).decode('utf-8')
+                            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="inherit" height="1000" type="application/pdf"></iframe>'
+                            #print(f"Displaying PDF {pdf_file_name}")
+                            st.markdown(pdf_display, unsafe_allow_html=True)
                   
 
             if st.button("Clear Questions"): 
