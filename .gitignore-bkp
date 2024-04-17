@@ -1,0 +1,11 @@
+.env
+.env-copy
+.venv
+cpy-errors.log
+test.py
+mysql.py
+__pycache__/
+docs/
+client/
+*.zip
+*.log
